@@ -1,0 +1,5 @@
+"Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
+,%,ms,,ms,us,ms,
+"GPU activities",50.362781,3.476155,2,1.738077,631.801000,2.844354,"[CUDA memcpy DtoH]"
+"GPU activities",38.805357,2.678435,101,0.026519,25.984000,0.027808,"transposeNaive(float*, float*, int, int)"
+"GPU activities",10.831862,0.747640,1,0.747640,747.640000,0.747640,"[CUDA memcpy HtoD]"
