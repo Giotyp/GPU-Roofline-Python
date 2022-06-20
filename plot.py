@@ -1,5 +1,4 @@
 import matplotlib
-from matplotlib.transforms import Bbox
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,7 +8,7 @@ def roofline(kernel_name):
     # Format csv files to discard nvprof unwanted output
     # e.g. : ==5328== NVPROF is profiling process 5328, command: ./transpose
 
-    for file in [f'timing_{kernel_name}.csv', f'metrics_{kernel_name}.csv']:
+    for file in [f'timing_{kernel_name}.csv', f'metrics_{kernel_name}.csv', f'events_{kernel_name}.csv']:
         with open(file,"r+") as f:
             new_f = f.readlines()
             f.seek(0)
@@ -20,6 +19,7 @@ def roofline(kernel_name):
 
     # get csv databases with pandas
     timing = pd.read_csv(f'timing_{kernel_name}.csv')
+    events = pd.read_csv(f'events_{kernel_name}.csv')
     metrics = pd.read_csv(f'metrics_{kernel_name}.csv')
 
     ## Kernel Time ##
@@ -37,11 +37,10 @@ def roofline(kernel_name):
         kernel_time /= 1000
     elif unit == 's':
         kernel_time *= 1000000
-    unit = 'us'
 
     # Total Instructions
 
-    instructions = metrics.loc[(metrics["Event Name"] == "thread_inst_executed")]
+    instructions = events.loc[(events["Event Name"] == "thread_inst_executed")]
 
     # take Average if there are multiple kernel calls and scale to  warp-level
     total_inst_nrml = int(instructions["Avg"]) / 32 
@@ -49,16 +48,16 @@ def roofline(kernel_name):
 
     ## L1 stats ##
 
-    gld_stats = metrics.loc[(metrics["Event Name"] == "gld_transactions")]
+    gld_stats = metrics.loc[(metrics["Metric Name"] == "gld_transactions")]
     gld_transactions = int(gld_stats["Avg"])
 
-    gst_stats = metrics.loc[(metrics["Event Name"] == "gst_transactions")]
+    gst_stats = metrics.loc[(metrics["Metric Name"] == "gst_transactions")]
     gst_transactions = int(gst_stats["Avg"])
 
-    sld_stats = metrics.loc[(metrics["Event Name"] == "shared_load_transactions")]
+    sld_stats = metrics.loc[(metrics["Metric Name"] == "shared_load_transactions")]
     sld_transactions = int(sld_stats["Avg"])
 
-    sst_stats = metrics.loc[(metrics["Event Name"] == "shared_store_transactions")]
+    sst_stats = metrics.loc[(metrics["Metric Name"] == "shared_store_transactions")]
     sst_transactions = int(sst_stats["Avg"])
 
     l1_total = gld_transactions + gst_transactions + sld_transactions + sst_transactions
@@ -69,7 +68,7 @@ def roofline(kernel_name):
 
     ## Global Transactions ##
 
-    gb_stats = metrics.loc[(metrics["Event Name"] == "inst_executed_global_loads")]
+    gb_stats = metrics.loc[(metrics["Metric Name"] == "inst_executed_global_loads")]
     gb_transactions = int(gb_stats["Avg"])
 
     gb_total = gld_transactions + gst_transactions
@@ -79,10 +78,10 @@ def roofline(kernel_name):
 
     ## L2 stats ##
 
-    l2_read_stats = metrics.loc[(metrics["Event Name"] == "l2_read_transactions")]
+    l2_read_stats = metrics.loc[(metrics["Metric Name"] == "l2_read_transactions")]
     l2_read_transactions = int(l2_read_stats["Avg"])
 
-    l2_write_stats = metrics.loc[(metrics["Event Name"] == "l2_write_transactions")]
+    l2_write_stats = metrics.loc[(metrics["Metric Name"] == "l2_write_transactions")]
     l2_write_transactions = int(l2_write_stats["Avg"])
 
     l2_total = l2_read_transactions + l2_write_transactions 
@@ -93,10 +92,10 @@ def roofline(kernel_name):
 
     ## HBM stats ##
 
-    dram_read_stats = metrics.loc[(metrics["Event Name"] == "dram_read_transactions")]
+    dram_read_stats = metrics.loc[(metrics["Metric Name"] == "dram_read_transactions")]
     dram_read_transactions = int(dram_read_stats["Avg"])
 
-    dram_write_stats = metrics.loc[(metrics["Event Name"] == "dram_write_transactions")]
+    dram_write_stats = metrics.loc[(metrics["Metric Name"] == "dram_write_transactions")]
     dram_write_transactions = int(dram_write_stats["Avg"])
 
     dram_total = dram_read_transactions + dram_write_transactions 

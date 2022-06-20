@@ -1,5 +1,5 @@
 "Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
 ,%,ms,,ms,us,ms,
-"GPU activities",50.362781,3.476155,2,1.738077,631.801000,2.844354,"[CUDA memcpy DtoH]"
-"GPU activities",38.805357,2.678435,101,0.026519,25.984000,0.027808,"transposeNaive(float*, float*, int, int)"
-"GPU activities",10.831862,0.747640,1,0.747640,747.640000,0.747640,"[CUDA memcpy HtoD]"
+"GPU activities",43.971243,2.670947,101,0.026445,25.983000,0.027104,"transposeNaive(float*, float*, int, int)"
+"GPU activities",43.555097,2.645669,2,1.322834,687.129000,1.958540,"[CUDA memcpy DtoH]"
+"GPU activities",12.473660,0.757688,1,0.757688,757.688000,0.757688,"[CUDA memcpy HtoD]"

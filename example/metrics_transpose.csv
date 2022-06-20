@@ -1,13 +1,10 @@
-"Device","Kernel","Invocations","Event Name","Min","Max","Avg","Total"
-"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"thread_inst_executed",16777216,16777216,16777216,1694498816
-
 "Device","Kernel","Invocations","Metric Name","Metric Description","Min","Max","Avg"
 "Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"inst_executed_global_loads","Warp level instructions for global loads",32768,32768,32768
 "Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"gld_transactions","Global Load Transactions",131072,131072,131072
 "Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"gst_transactions","Global Store Transactions",524288,524288,524288
 "Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"shared_load_transactions","Shared Load Transactions",0,0,0
 "Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"shared_store_transactions","Shared Store Transactions",0,0,0
-"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"l2_read_transactions","L2 Read Transactions",131168,131364,131170
-"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"l2_write_transactions","L2 Write Transactions",536051,551256,545204
-"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"dram_read_transactions","Device Memory Read Transactions",131305,145536,135872
-"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"dram_write_transactions","Device Memory Write Transactions",77801,177502,136919
+"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"l2_read_transactions","L2 Read Transactions",131168,131364,131172
+"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"l2_write_transactions","L2 Write Transactions",533906,550835,545629
+"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"dram_read_transactions","Device Memory Read Transactions",131291,144058,136549
+"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"dram_write_transactions","Device Memory Write Transactions",77553,176292,135811

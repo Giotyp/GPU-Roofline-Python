@@ -1,0 +1,2 @@
+"Device","Kernel","Invocations","Event Name","Min","Max","Avg","Total"
+"Tesla V100S-PCIE-32GB (0)","transposeNaive(float*, float*, int, int)",101,"thread_inst_executed",16777216,16777216,16777216,1694498816
