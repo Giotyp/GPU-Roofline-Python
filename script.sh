@@ -13,4 +13,5 @@ nvprof --csv --print-gpu-summary --log-file timing_${kernel_name}.csv  ./${kerne
 nvprof  --csv --metrics $metrics --log-file metrics_${kernel_name}.csv ./${kernel_name}
 nvprof  --csv --events $events   --log-file events_${kernel_name}.csv ./${kernel_name}
 
-python3 ../plot.py
+python3 ../plot.py -kernel_name transpose -events events_transpose.csv -timings timing_transpose.csv \
+-metrics metrics_transpose.csv -title="Matrix Transpose Naive"

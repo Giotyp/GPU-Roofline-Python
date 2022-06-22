@@ -1,109 +1,10 @@
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import argparse
 
-def roofline(kernel_name):
-    # Format csv files to discard nvprof unwanted output
-    # e.g. : ==5328== NVPROF is profiling process 5328, command: ./transpose
-
-    for file in [f'timing_{kernel_name}.csv', f'metrics_{kernel_name}.csv', f'events_{kernel_name}.csv']:
-        with open(file,"r+") as f:
-            new_f = f.readlines()
-            f.seek(0)
-            for line in new_f:
-                if "==" not in line:
-                    f.write(line)
-            f.truncate()
-
-    # get csv databases with pandas
-    timing = pd.read_csv(f'timing_{kernel_name}.csv')
-    events = pd.read_csv(f'events_{kernel_name}.csv')
-    metrics = pd.read_csv(f'metrics_{kernel_name}.csv')
-
-    ## Kernel Time ##
-    time_row = timing.loc[(timing.Name.str.match(r'{}.'.format(kernel_name), na=False))]
-
-    kernel_time = float(time_row["Avg"]) # average kernel time
-
-    unit_row = timing.loc[(timing['Time(%)'].str.match('%', na=False))]
-    unit = unit_row.iloc[0]["Avg"] # unit used
-
-    # change to usec
-    if unit == 'ms':
-        kernel_time *= 1000
-    elif unit == 'ns':
-        kernel_time /= 1000
-    elif unit == 's':
-        kernel_time *= 1000000
-
-    # Total Instructions
-
-    instructions = events.loc[(events["Event Name"] == "thread_inst_executed")]
-
-    # take Average if there are multiple kernel calls and scale to  warp-level
-    total_inst_nrml = int(instructions["Avg"]) / 32 
-
-
-    ## L1 stats ##
-
-    gld_stats = metrics.loc[(metrics["Metric Name"] == "gld_transactions")]
-    gld_transactions = int(gld_stats["Avg"])
-
-    gst_stats = metrics.loc[(metrics["Metric Name"] == "gst_transactions")]
-    gst_transactions = int(gst_stats["Avg"])
-
-    sld_stats = metrics.loc[(metrics["Metric Name"] == "shared_load_transactions")]
-    sld_transactions = int(sld_stats["Avg"])
-
-    sst_stats = metrics.loc[(metrics["Metric Name"] == "shared_store_transactions")]
-    sst_transactions = int(sst_stats["Avg"])
-
-    l1_total = gld_transactions + gst_transactions + sld_transactions + sst_transactions
-
-    l1_intensity = total_inst_nrml / l1_total
-    l1_performance = total_inst_nrml / (1000 * kernel_time) # performance in  GIPS ( kernel_time in μsecs )
-
-
-    ## Global Transactions ##
-
-    gb_stats = metrics.loc[(metrics["Metric Name"] == "inst_executed_global_loads")]
-    gb_transactions = int(gb_stats["Avg"])
-
-    gb_total = gld_transactions + gst_transactions
-    gb_intensity = gb_transactions / gb_total
-    gb_performance = gb_transactions / (1000 * kernel_time)
-
-
-    ## L2 stats ##
-
-    l2_read_stats = metrics.loc[(metrics["Metric Name"] == "l2_read_transactions")]
-    l2_read_transactions = int(l2_read_stats["Avg"])
-
-    l2_write_stats = metrics.loc[(metrics["Metric Name"] == "l2_write_transactions")]
-    l2_write_transactions = int(l2_write_stats["Avg"])
-
-    l2_total = l2_read_transactions + l2_write_transactions 
-
-    l2_intensity = total_inst_nrml / l2_total
-    l2_performance = total_inst_nrml / (1000 * kernel_time) # performance in  GIPS ( kernel_time in μsecs )
-
-
-    ## HBM stats ##
-
-    dram_read_stats = metrics.loc[(metrics["Metric Name"] == "dram_read_transactions")]
-    dram_read_transactions = int(dram_read_stats["Avg"])
-
-    dram_write_stats = metrics.loc[(metrics["Metric Name"] == "dram_write_transactions")]
-    dram_write_transactions = int(dram_write_stats["Avg"])
-
-    dram_total = dram_read_transactions + dram_write_transactions 
-
-    hbm_intensity = total_inst_nrml / dram_total
-    hbm_performance = total_inst_nrml / (1000 * kernel_time) # performance in  GIPS ( kernel_time in μsecs )
-
-
+def create_graph():
     ## Define Bandwidths ##
 
     peak = 489.6 # theoretical peak 489.6 warp GIPS
@@ -138,10 +39,6 @@ def roofline(kernel_name):
     instr_min = 10**xmin
     instr_max = 10**xmax
 
-    # define ceilings
-    help_x = np.asarray([instr_min, instr_max]) # helper dotted line
-    help_y = np.asarray([l1_performance, l1_performance])
-
     peak_x = np.asarray([l1_elbow, 10**xmax]) # performance ceiling
     peak_y = np.asarray([peak, peak]) 
 
@@ -155,29 +52,210 @@ def roofline(kernel_name):
     hbm_y = np.asarray([hbm_bw*instr_min, peak])
 
     # add architectural characterization to figure
-    ax.plot(help_x, help_y, color='0', linestyle='--')
     ax.plot(peak_x, peak_y, color='0') # Performance ceiling
     ax.plot(l1_x, l1_y, color='r', label='L1 437.5 GTXN/s') # L1 ceiling
     ax.plot(l2_x, l2_y, color='g', label='L2 93.6 GTXN/s') # L2 ceiling
     ax.plot(hbm_x, hbm_y, color='b', label='HBM 25.9 GTXN/s') # HBM ceiling
 
-    # add application characterization
-    ax.plot(l1_intensity, l1_performance, color='r', marker = 's', label="L1 (tot_inst)")
-    ax.plot(l2_intensity, l2_performance, color='g', marker = 's', label="L2 (tot_inst)")
-    ax.plot(hbm_intensity, hbm_performance, color='b', marker = 's', label="HBM (tot_inst)")
-    ax.plot(gb_intensity, gb_performance, color='y', marker = 's', label="Global (ldst_inst)")
+    # text for peak performance
+    ax.text(l1_elbow, peak+100, f'Theoretical Peak: {peak} warp GIPS')
+
+    return ax,fig
+
+def timing(kernel_dic, kernel_name, filename):
+    # Format csv files to discard nvprof unwanted output
+    # e.g. : ==5328== NVPROF is profiling process 5328, command: ./transpose
+
+    with open(filename,"r+") as f:
+        new_f = f.readlines()
+        f.seek(0)
+        for line in new_f:
+            if "==" not in line:
+                f.write(line)
+        f.truncate()
+
+    # get csv database with pandas
+    timing = pd.read_csv(filename)
+
+    ## Kernel Time ##
+    time_row = timing.loc[(timing.Name.str.match(r'{}.'.format(kernel_name), na=False))]
+
+    kernel_time = float(time_row["Avg"]) # average kernel time
+
+    unit_row = timing.loc[(timing['Time(%)'].str.match('%', na=False))]
+    unit = unit_row.iloc[0]["Avg"] # unit used
+
+    # change to usec
+    if unit == 'ms':
+        kernel_time *= 1000
+    elif unit == 'ns':
+        kernel_time /= 1000
+    elif unit == 's':
+        kernel_time *= 1000000
+
+    id = filename.split('.')[0].split('_')[1]
+    kernel_dic[id] = {}
+    kernel_dic[id]['kernel_time'] = kernel_time
 
 
-    # add title, optional text for peak and labels
-    ax.text(l1_elbow, peak+100, 'Theoretical Peak: 489.6 warp GIPS')
-    ax.legend(loc='lower right')
+def find_inst(kernel_dic, kernel_name, filename):
+    with open(filename,"r+") as f:
+        new_f = f.readlines()
+        f.seek(0)
+        for line in new_f:
+            if "==" not in line:
+                f.write(line)
+        f.truncate()
 
-    ax.set_title("Matrix Transpose Naive: global memory pattern")
-    ax.grid(True)
+    events = pd.read_csv(filename)
 
-    figname = f"roofline_{kernel_name}.png"
-    fig.savefig(figname, bbox_inches="tight")
+    # Total Instructions
+    # If executing a python kernel there might be multiple calls 
+    # to profiling function e.g. fft kernel
+    instructions = events.loc[(events["Event Name"] == "thread_inst_executed")]
+    kernel_inst = instructions.loc[(instructions.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    total_inst_nrml = 0
+    for inst in kernel_inst['Avg']:
+        total_inst_nrml += int(inst)
+
+    total_inst_nrml /= 32
+
+    id = filename.split('.')[0].split('_')[1]
+    kernel_dic[id]['total_inst'] = total_inst_nrml
+
+
+
+def app_char(kernel_dic, kernel_name, filename, graph, simple):
+    with open(filename,"r+") as f:
+        new_f = f.readlines()
+        f.seek(0)
+        for line in new_f:
+            if "==" not in line:
+                f.write(line)
+        f.truncate()
+
+    metrics = pd.read_csv(filename)
+    id = filename.split('.')[0].split('_')[1]
+
+    ## L1 stats ##
+    gld_stats = metrics.loc[(metrics["Metric Name"] == "gld_transactions")]
+    gld_stats = gld_stats.loc[(gld_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    gld_transactions = 0
+    for tr in gld_stats["Avg"]:
+        gld_transactions += int(tr)
+
+    gst_stats = metrics.loc[(metrics["Metric Name"] == "gst_transactions")]
+    gst_stats = gst_stats.loc[(gst_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    gst_transactions = 0
+    for tr in gst_stats["Avg"]:
+        gst_transactions += int(tr)
+
+    sld_stats = metrics.loc[(metrics["Metric Name"] == "shared_load_transactions")]
+    sld_stats = sld_stats.loc[(sld_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    sld_transactions = 0
+    for tr in sld_stats["Avg"]:
+        sld_transactions += int(tr)
+
+    sst_stats = metrics.loc[(metrics["Metric Name"] == "shared_store_transactions")]
+    sst_stats = sst_stats.loc[(sst_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    sst_transactions = 0
+    for tr in sst_stats["Avg"]:
+        sst_transactions += int(tr)
+
+    l1_total = gld_transactions + gst_transactions + sld_transactions + sst_transactions
+
+    l1_intensity = kernel_dic[id]['total_inst'] / l1_total
+    l1_performance = kernel_dic[id]['total_inst'] / (1000 * kernel_dic[id]['kernel_time']) # performance in  GIPS ( kernel_time in μsecs )
+
+    if simple:
+        graph.plot(l1_intensity, l1_performance, color='r', marker = 's', label="Total Instructions")
+        return
+
+    graph.plot(l1_intensity, l1_performance, color='r', marker = 's', label="L1 (tot_inst)")
+
+    ## L2 stats ##
+
+    l2_read_stats = metrics.loc[(metrics["Metric Name"] == "l2_read_transactions")]
+    l2_read_stats = l2_read_stats.loc[(l2_read_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    l2_read_transactions = 0
+    for tr in l2_read_stats["Avg"]:
+        l2_read_transactions += int(tr)
+
+    l2_write_stats = metrics.loc[(metrics["Metric Name"] == "l2_write_transactions")]
+    l2_write_stats = l2_write_stats.loc[(l2_write_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    l2_write_transactions = 0
+    for tr in l2_write_stats["Avg"]:
+        l2_write_transactions += int(tr)
+
+    l2_total = l2_read_transactions + l2_write_transactions 
+
+    l2_intensity = kernel_dic[id]['total_inst'] / l2_total
+    l2_performance = kernel_dic[id]['total_inst'] / (1000 * kernel_dic[id]['kernel_time']) # performance in  GIPS ( kernel_time in μsecs )
+
+    graph.plot(l2_intensity, l2_performance, color='g', marker = 's', label="L2 (tot_inst)")
+
+    ## HBM stats ##
+
+    dram_read_stats = metrics.loc[(metrics["Metric Name"] == "dram_read_transactions")]
+    dram_read_stats = dram_read_stats.loc[(dram_read_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    dram_read_transactions = 0
+    for tr in dram_read_stats["Avg"]:
+        dram_read_transactions += int(tr)
+
+    dram_write_stats = metrics.loc[(metrics["Metric Name"] == "dram_write_transactions")]
+    dram_write_stats = dram_write_stats.loc[(dram_write_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    dram_write_transactions = 0
+    for tr in dram_write_stats["Avg"]:
+        dram_write_transactions += int(tr)
+
+    dram_total = dram_read_transactions + dram_write_transactions 
+
+    hbm_intensity = kernel_dic[id]['total_inst'] / dram_total
+    hbm_performance = kernel_dic[id]['total_inst'] / (1000 * kernel_dic[id]['kernel_time']) # performance in  GIPS ( kernel_time in μsecs )
+
+    graph.plot(hbm_intensity, hbm_performance, color='b', marker = 's', label="HBM (tot_inst)")
 
 
 if __name__ == "__main__":
-    roofline('transpose') # define kernel name used in csv files  
+    parser = argparse.ArgumentParser(description='Plot roofline model')
+    parser.add_argument('-kernel_name', type=str, help='Kernel name as shown in csv')
+    parser.add_argument('-timings', nargs='+', help='Timing files (timing_kernel.csv)')
+    parser.add_argument('-events', nargs='+', help='Event files (events_kernel.csv)')
+    parser.add_argument('-metrics', nargs='+', help='Metric files (metrics_kernel.csv)')
+    parser.add_argument('-title', type=str, help='Graph title')
+    parser.add_argument('-out', type=str, help='Output file (default = roofline_kernel_name.png)')
+    parser.add_argument('-simple', action='store_true', help='Plot only total transactions')
+    args = parser.parse_args()
+
+    timings = args.timings
+    events = args.events
+    metrics = args.metrics
+    simple = args.simple
+    
+    kernel_name = args.kernel_name
+    title = args.title
+    out = args.out
+
+
+    ax, fig = create_graph()
+    
+    kernel_dic = {}
+
+    for file in timings:
+        timing(kernel_dic, kernel_name, file)
+
+    for file in events:
+        find_inst(kernel_dic, kernel_name, file)
+
+    for file in metrics:
+        app_char(kernel_dic, kernel_name, file, ax, simple)
+    
+    # add title and legend
+    ax.legend(loc='lower right')
+
+    ax.set_title(title)
+    ax.grid(True)
+
+    figname = f"roofline_{kernel_name}.png" if out is None else out
+
+    fig.savefig(figname, bbox_inches="tight")
