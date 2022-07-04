@@ -1,0 +1,21 @@
+Running GPU Benchmarks
+
+L1 bandwidth = 123.416331 (byte/clk/SM)
+Total Clk number = 33985
+L2 bandwidth = 1801.203125 (byte/cycle)
+Total Clk number = 1490312
+Mem BW= 726.116150 (Byte/Clk)
+Mem BW= 841.553728 (GB/sec)
+Total Clk number = 277265
+
+Final Measurements After Calculations
+
+L1 bandwidth = 12292.266567 (GB/sec)
+L2 bandwidth = 2242.497890 (GB/sec)
+HBM bandwidth =  841.553728  (GB/sec)
+
+Measurements normalized to 32B transaction size
+
+L1 bandwidth = 384.133330 (GTXN/s)
+L2 bandwidth = 70.078059 (GTXN/s)
+HBM bandwidth = 26.298554 (GTXN/s)
