@@ -50,6 +50,6 @@ To simulate the module, a Matrix Transpose kernel from [cuda-samples](https://gi
 
 
 ## Bandwidth Ceilings
-In module **plot.py** the ceilings for L1,L2 cache and HBM are sourced from the above-mentioned paper. Empirical bandwidths can be calculated by running  ***measure_bw.sh*** under GPU_Microbenchmarks folder (results for V100S are provided in bw_measurements.txt). The microbenchmarks used can be found here: [accel-sim/gpu-app-collection](https://github.com/accel-sim/gpu-app-collection/tree/release/src/cuda/GPU_Microbenchmark)
+In module **plot.py** the ceilings for L1,L2 cache, HBM and maximum (warp-based) IPS  are sourced from the above-mentioned paper. Empirical bandwidths can be calculated by running  ***measure_bw.sh*** under GPU_Microbenchmarks folder (results for V100S are provided in bw_measurements.txt). The microbenchmarks used can be found here: [accel-sim/gpu-app-collection](https://github.com/accel-sim/gpu-app-collection/tree/release/src/cuda/GPU_Microbenchmark)
 
 ### **!** The module **plot.py** was designed based on the specific transpose kernel so user must modify it according to the required kernel ( Graph titles, metrics, kernel_name, etc. )
