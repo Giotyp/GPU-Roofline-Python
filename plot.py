@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import argparse
 
-def create_graph():
+def create_graph(simple):
     ## Define Bandwidths ##
 
     peak = 489.6 # theoretical peak 489.6 warp GIPS
@@ -54,8 +54,9 @@ def create_graph():
     # add architectural characterization to figure
     ax.plot(peak_x, peak_y, color='0') # Performance ceiling
     ax.plot(l1_x, l1_y, color='r', label='L1 437.5 GTXN/s') # L1 ceiling
-    ax.plot(l2_x, l2_y, color='g', label='L2 93.6 GTXN/s') # L2 ceiling
-    ax.plot(hbm_x, hbm_y, color='b', label='HBM 25.9 GTXN/s') # HBM ceiling
+    if not simple:
+        ax.plot(l2_x, l2_y, color='g', label='L2 93.6 GTXN/s') # L2 ceiling
+        ax.plot(hbm_x, hbm_y, color='b', label='HBM 25.9 GTXN/s') # HBM ceiling
 
     # text for peak performance
     ax.text(l1_elbow, peak+100, f'Theoretical Peak: {peak} warp GIPS')
@@ -78,7 +79,7 @@ def timing(kernel_dic, kernel_name, filename):
     timing = pd.read_csv(filename)
 
     ## Kernel Time ##
-    time_row = timing.loc[(timing.Name.str.match(r'{}.'.format(kernel_name), na=False))]
+    time_row = timing.loc[(timing.Name.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
 
     kernel_time = float(time_row["Avg"]) # average kernel time
 
@@ -113,7 +114,7 @@ def find_inst(kernel_dic, kernel_name, filename):
     # If executing a python kernel there might be multiple calls 
     # to profiling function e.g. fft kernel
     instructions = events.loc[(events["Event Name"] == "thread_inst_executed")]
-    kernel_inst = instructions.loc[(instructions.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    kernel_inst = instructions.loc[(instructions.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     total_inst_nrml = 0
     for inst in kernel_inst['Avg']:
         total_inst_nrml += int(inst)
@@ -139,25 +140,25 @@ def app_char(kernel_dic, kernel_name, filename, graph, simple):
 
     ## L1 stats ##
     gld_stats = metrics.loc[(metrics["Metric Name"] == "gld_transactions")]
-    gld_stats = gld_stats.loc[(gld_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    gld_stats = gld_stats.loc[(gld_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     gld_transactions = 0
     for tr in gld_stats["Avg"]:
         gld_transactions += int(tr)
 
     gst_stats = metrics.loc[(metrics["Metric Name"] == "gst_transactions")]
-    gst_stats = gst_stats.loc[(gst_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    gst_stats = gst_stats.loc[(gst_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     gst_transactions = 0
     for tr in gst_stats["Avg"]:
         gst_transactions += int(tr)
 
     sld_stats = metrics.loc[(metrics["Metric Name"] == "shared_load_transactions")]
-    sld_stats = sld_stats.loc[(sld_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    sld_stats = sld_stats.loc[(sld_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     sld_transactions = 0
     for tr in sld_stats["Avg"]:
         sld_transactions += int(tr)
 
     sst_stats = metrics.loc[(metrics["Metric Name"] == "shared_store_transactions")]
-    sst_stats = sst_stats.loc[(sst_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    sst_stats = sst_stats.loc[(sst_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     sst_transactions = 0
     for tr in sst_stats["Avg"]:
         sst_transactions += int(tr)
@@ -176,13 +177,13 @@ def app_char(kernel_dic, kernel_name, filename, graph, simple):
     ## L2 stats ##
 
     l2_read_stats = metrics.loc[(metrics["Metric Name"] == "l2_read_transactions")]
-    l2_read_stats = l2_read_stats.loc[(l2_read_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    l2_read_stats = l2_read_stats.loc[(l2_read_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     l2_read_transactions = 0
     for tr in l2_read_stats["Avg"]:
         l2_read_transactions += int(tr)
 
     l2_write_stats = metrics.loc[(metrics["Metric Name"] == "l2_write_transactions")]
-    l2_write_stats = l2_write_stats.loc[(l2_write_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    l2_write_stats = l2_write_stats.loc[(l2_write_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     l2_write_transactions = 0
     for tr in l2_write_stats["Avg"]:
         l2_write_transactions += int(tr)
@@ -197,13 +198,13 @@ def app_char(kernel_dic, kernel_name, filename, graph, simple):
     ## HBM stats ##
 
     dram_read_stats = metrics.loc[(metrics["Metric Name"] == "dram_read_transactions")]
-    dram_read_stats = dram_read_stats.loc[(dram_read_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    dram_read_stats = dram_read_stats.loc[(dram_read_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     dram_read_transactions = 0
     for tr in dram_read_stats["Avg"]:
         dram_read_transactions += int(tr)
 
     dram_write_stats = metrics.loc[(metrics["Metric Name"] == "dram_write_transactions")]
-    dram_write_stats = dram_write_stats.loc[(dram_write_stats.Kernel.str.match(r'{}.'.format(kernel_name), na=False))]
+    dram_write_stats = dram_write_stats.loc[(dram_write_stats.Kernel.str.match(r'{}.|{}'.format(kernel_name,kernel_name), na=False))]
     dram_write_transactions = 0
     for tr in dram_write_stats["Avg"]:
         dram_write_transactions += int(tr)
@@ -237,7 +238,7 @@ if __name__ == "__main__":
     out = args.out
 
 
-    ax, fig = create_graph()
+    ax, fig = create_graph(simple)
     
     kernel_dic = {}
 
@@ -251,7 +252,9 @@ if __name__ == "__main__":
         app_char(kernel_dic, kernel_name, file, ax, simple)
     
     # add title and legend
-    ax.legend(loc='lower right')
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5),
+          ncol=1, fancybox=True, shadow=True)
+
 
     ax.set_title(title)
     ax.grid(True)
