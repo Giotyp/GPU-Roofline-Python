@@ -19,7 +19,14 @@ l2_write_transactions="${l2_write_transactions_1},${l2_transactions_2},${l2_tran
 dram_read_transactions='dram__sectors_read.sum'
 dram_write_transactions='dram__sectors_write.sum'
 
-metrics="${gld_transactions},${gst_transactions},${shared_load_transactions},${shared_store_transactions},${l2_read_transactions},${l2_write_transactions},${dram_read_transactions},${dram_write_transactions}"
+# Compute (FLOP) roofline: single-precision FLOP counts + DRAM bytes moved
+flop_add='sm__sass_thread_inst_executed_op_fadd_pred_on.sum'
+flop_mul='sm__sass_thread_inst_executed_op_fmul_pred_on.sum'
+flop_fma='sm__sass_thread_inst_executed_op_ffma_pred_on.sum'
+dram_bytes='dram__bytes.sum'
+flop_metrics="${flop_add},${flop_mul},${flop_fma},${dram_bytes}"
+
+metrics="${gld_transactions},${gst_transactions},${shared_load_transactions},${shared_store_transactions},${l2_read_transactions},${l2_write_transactions},${dram_read_transactions},${dram_write_transactions},${flop_metrics}"
 events='smsp__thread_inst_executed.sum'
 
 options='--csv --profile-from-start off --print-summary per-kernel'

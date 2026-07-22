@@ -1,0 +1,3 @@
+"Kernel Name","Metric Name","Metric Unit","Average"
+"saxpy","gpu__time_active.avg","nsecond","643,000.00"
+"gemm","gpu__time_active.avg","nsecond","6,667,000.00"

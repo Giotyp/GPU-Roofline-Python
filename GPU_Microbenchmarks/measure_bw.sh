@@ -35,10 +35,14 @@ echo "" >> bw_measurements.txt
 echo "" >> bw_measurements.txt
 ./$Flops_path/$Flops_bin >> bw_measurements.txt
 
+# Number of SMs on the target GPU. nvidia-smi does not expose this directly,
+# so pass it explicitly, e.g.  SM=132 ./measure_bw.sh
+# (V100S=80, A100=108, H100/H200=132, B200=148, RTX4090=128, RTX5090=170)
+SM=${SM:-80}
+
 # L1 BW
 L1_bw=$(grep -E 'L1 bandwidth' bw_measurements.txt | cut -d '=' -f 2 | cut -d '(' -f 1)
-## multiply for n SM's . V100 has 80 SM 
-SM=80
+## multiply per-SM bandwidth by the SM count
 L1_bw=$(echo ${L1_bw} \* ${SM} | bc)
 
 # L2 BW
