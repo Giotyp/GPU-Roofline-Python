@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# CUDA microbenchmark build artifacts
+*.o
+GPU_Microbenchmarks/MaxFlops/MaxFlops
+GPU_Microbenchmarks/l1_bw_64f/l1_bw_64f
+GPU_Microbenchmarks/l1_bw_64f/l1_bw_64f_unroll
+GPU_Microbenchmarks/l2_bw_64f/l2_bw_64f
+GPU_Microbenchmarks/mem_bw/mem_bw
+hierarchical/transpose
+
+# Default roofline output
+roofline.png
