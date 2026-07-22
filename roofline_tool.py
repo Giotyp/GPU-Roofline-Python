@@ -1,6 +1,12 @@
+import argparse
+import io
+import itertools
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+import gpu_specs
 
 ## Create dictionaries for ncu and nvprof  ##
 ## with appropriate metric names           ##
@@ -17,6 +23,12 @@ nvp = {
     "l2wr":"l2_write_transactions",
     "drrd":"dram_read_transactions",
     "drwr":"dram_write_transactions",
+    # compute (FLOP) roofline
+    "fadd":"flop_count_sp_add",
+    "fmul":"flop_count_sp_mul",
+    "ffma":"flop_count_sp_fma",
+    "dram_bytes":"dram_read_bytes",  # nvprof: add read+write, see app_char_flop
+    "dram_bytes_wr":"dram_write_bytes",
 }
 
 ncu = {
@@ -33,6 +45,12 @@ ncu = {
     "l2red":"lts__t_sectors_op_red.sum",
     "drrd":"dram__sectors_read.sum",
     "drwr":"dram__sectors_write.sum",
+    # compute (FLOP) roofline
+    "fadd":"sm__sass_thread_inst_executed_op_fadd_pred_on.sum",
+    "fmul":"sm__sass_thread_inst_executed_op_fmul_pred_on.sum",
+    "ffma":"sm__sass_thread_inst_executed_op_ffma_pred_on.sum",
+    "dram_bytes":"dram__bytes.sum",
+    "dram_bytes_wr":None,  # ncu dram__bytes.sum already counts read+write
 }
 
 
@@ -42,23 +60,22 @@ def float_val(x):
     return float(x.to_string().split(' ')[-1].replace(',',''))
 
 
-def create_graph(memories):
-    ## Define Bandwidths ##
+# Read a profiler CSV, stripping nvprof banner lines (e.g.
+# "==5328== NVPROF is profiling process 5328, command: ./transpose")
+# WITHOUT mutating the file on disk. Returns a parsed DataFrame.
+def load_clean_csv(path):
+    with open(path, "r") as f:
+        lines = [line for line in f if "==" not in line]
+    return pd.read_csv(io.StringIO("".join(lines)))
 
-    #peak = 489.6 # theoretical peak for V100S in warp GIPS
-    peak = 609.12 # theoretical peak for A100
 
-    #l1_bw = 437.5 # theoretical bandwidth of L1 for V100S
-    l1_bw = 1312.5 # theoretical bandwidth of L1 for A100
-    l1_elbow = peak/l1_bw
+def create_instruction_graph(spec, memories):
+    ## Instruction-roofline ceilings, pulled from the GPU spec ##
 
-    #l2_bw = 93.6 # theoretical bandwidth of L2 for V100S
-    l2_bw = 215.3 # theoretical bandwidth of L2 for A100
-    l2_elbow = peak/l2_bw
-
-    #hbm_bw = 25.9 # theoretical bandwidth of HBM for V100S
-    hbm_bw = 48.6  # theoretical bandwidth of HBM for A100
-    hbm_elbow = peak/hbm_bw
+    peak = spec["peak_gips"]
+    l1_bw = spec["l1_gtxn"]
+    l2_bw = spec["l2_gtxn"]
+    hbm_bw = spec["hbm_gtxn"]
 
 
     ## Plotting ##
@@ -80,57 +97,89 @@ def create_graph(memories):
     ax.set_ylim(10**ymin, 10**ymax)
 
     instr_min = 10**xmin
-    instr_max = 10**xmax
 
-    peak_x = np.asarray([l1_elbow, 10**xmax]) # performance ceiling
-    peak_y = np.asarray([peak, peak]) 
-
-    l1_x = np.asarray([instr_min, l1_elbow ]) # L1 ceiling
-    l1_y = np.asarray([l1_bw*instr_min, peak])
-
-    l2_x = np.asarray([instr_min, l2_elbow]) # L2 ceiling
-    l2_y = np.asarray([l2_bw*instr_min, peak])
-
-    hbm_x = np.asarray([instr_min, hbm_elbow]) # HBM ceiling
-    hbm_y = np.asarray([hbm_bw*instr_min, peak])
-
-    # add architectural characterization to figure
+    peak_x = np.asarray([peak/l1_bw if l1_bw else instr_min, 10**xmax]) # performance ceiling
+    peak_y = np.asarray([peak, peak])
 
     l1, l2, hbm = memories
 
     ax.plot(peak_x, peak_y, color='0') # Performance ceiling
 
-    if l1:
+    # Each cache/HBM ceiling is only drawn when the spec provides it
+    # (Hopper/Blackwell/RTX L1/L2 need microbenchmarking, see gpu_specs).
+    if l1 and l1_bw:
+        l1_x = np.asarray([instr_min, peak/l1_bw])
+        l1_y = np.asarray([l1_bw*instr_min, peak])
         ax.plot(l1_x, l1_y, color='r', label=f'L1 {l1_bw} GTXN/s') # L1 ceiling
-    if l2:
-        ax.plot(l2_x, l2_y, color='g', label=f'L2 {l2_bw} GTXN/s') # L2 ceiling        
-    if hbm:    
-        ax.plot(hbm_x, hbm_y, color='b', label=f'HBM {hbm_bw} GTXN/s') # HBM ceiling
+    if l2 and l2_bw:
+        l2_x = np.asarray([instr_min, peak/l2_bw])
+        l2_y = np.asarray([l2_bw*instr_min, peak])
+        ax.plot(l2_x, l2_y, color='g', label=f'L2 {l2_bw} GTXN/s') # L2 ceiling
+    if hbm and hbm_bw:
+        hbm_x = np.asarray([instr_min, peak/hbm_bw])
+        hbm_y = np.asarray([hbm_bw*instr_min, peak])
+        ax.plot(hbm_x, hbm_y, color='b', label=f'HBM {round(hbm_bw,1)} GTXN/s') # HBM ceiling
 
     # text for peak performance
-    ax.text(l1_elbow, peak+100, f'Theoretical Peak: {peak} warp GIPS')
+    elbow = peak/l1_bw if l1_bw else instr_min
+    ax.text(elbow, peak+100, f'Theoretical Peak: {round(peak,1)} warp GIPS')
+
+    return ax,fig
+
+
+def create_flop_graph(spec, precisions):
+    ## Classic compute (FLOP) roofline ##
+    ## X = arithmetic intensity (FLOP/byte), Y = attainable TFLOP/s ##
+
+    hbm_bw = spec["hbm_gbs"] / 1000.0  # GB/s -> TB/s (= TFLOP per FLOP/byte)
+
+    fig = plt.figure(figsize=(8,4))
+    ax = plt.axes((0.1,0.1,0.8,0.8))
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('Arithmetic Intensity (FLOP / Byte)')
+    ax.set_ylabel('Performance (TFLOP/s)')
+
+    xmin, xmax = -2, 4
+    ax.set_xlim(10**xmin, 10**xmax)
+
+    ai_min = 10**xmin
+    ai_max = 10**xmax
+
+    # one horizontal compute ceiling per requested precision
+    peaks = [spec[p] for p in precisions if spec.get(p)]
+    ymax_peak = max(peaks) if peaks else 1
+    ax.set_ylim(10**-1, ymax_peak*2)
+
+    colours = itertools.cycle(['r','g','b','m','c','y','k'])
+    for p in precisions:
+        peak = spec.get(p)
+        if not peak:
+            continue  # precision unsupported on this GPU
+        colour = next(colours)
+        elbow = peak/hbm_bw  # ridge point (FLOP/byte)
+        ax.plot([elbow, ai_max], [peak, peak], color=colour,
+                label=f'{p.upper()} {peak} TFLOP/s')  # compute ceiling
+
+    # single diagonal HBM memory ceiling
+    ax.plot([ai_min, ai_max], [hbm_bw*ai_min, hbm_bw*ai_max], color='0',
+            label=f'HBM {spec["hbm_gbs"]} GB/s')
 
     return ax,fig
 
 
 
 def timing(kernel_stats, kernel_name, time_file, profiler):
-    # Format csv files to discard nvprof unwanted output
-    # e.g. : ==5328== NVPROF is profiling process 5328, command: ./transpose
-
-    with open(time_file,"r+") as f:
-        new_f = f.readlines()
-        f.seek(0)
-        for line in new_f:
-            if "==" not in line:
-                f.write(line)
-        f.truncate()
-
-    # get csv database with pandas
-    timing = pd.read_csv(time_file)
+    timing = load_clean_csv(time_file)
 
     ## Kernel Time ##
     time_row = timing.loc[(timing[profiler["time_kernel"]] == kernel_name)]
+
+    if time_row.empty:
+        names = timing[profiler["time_kernel"]].dropna().unique().tolist()
+        raise SystemExit(f"Kernel '{kernel_name}' not found in {time_file}. "
+                         f"Available: {names}")
 
     kernel_time = time_row[profiler["Average"]] # average kernel time
     kernel_time = float_val(kernel_time)
@@ -155,15 +204,7 @@ def timing(kernel_stats, kernel_name, time_file, profiler):
 
 
 def find_inst(kernel_stats, kernel_name, events_file, profiler):
-    with open(events_file,"r+") as f:
-        new_f = f.readlines()
-        f.seek(0)
-        for line in new_f:
-            if "==" not in line:
-                f.write(line)
-        f.truncate()
-
-    events = pd.read_csv(events_file)
+    events = load_clean_csv(events_file)
 
     # Total Instructions
     instructions = events.loc[(events[profiler["metric_kernel"]] == kernel_name)]
@@ -178,15 +219,7 @@ def find_inst(kernel_stats, kernel_name, events_file, profiler):
 
 
 def app_char(kernel_stats, kernel_name, metrics_file, graph, memories, profiler, labels, colors, markers, mode):
-    with open(metrics_file,"r+") as f:
-        new_f = f.readlines()
-        f.seek(0)
-        for line in new_f:
-            if "==" not in line:
-                f.write(line)
-        f.truncate()
-
-    metrics = pd.read_csv(metrics_file)
+    metrics = load_clean_csv(metrics_file)
     kernel_metrics = metrics.loc[(metrics[profiler["metric_kernel"]] == kernel_name)]
 
     l1, l2, hbm = memories
@@ -210,7 +243,7 @@ def app_char(kernel_stats, kernel_name, metrics_file, graph, memories, profiler,
 
         l1_intensity = kernel_stats['total_inst'] / l1_total
         l1_performance = kernel_stats['total_inst'] / (1000 * kernel_stats['kernel_time']) # performance in  GIPS ( kernel_time in μsecs )
-     
+
 
         if mode == 0:
             color = colors["l1"]
@@ -230,7 +263,7 @@ def app_char(kernel_stats, kernel_name, metrics_file, graph, memories, profiler,
         l2_at, l2_red = 0,0
         if profiler == ncu:
             l2_at = kernel_metrics.loc[(kernel_metrics["Metric Name"] == profiler["l2at"])]
-            l2_at = int(float_val(l2_at[profiler["Average"]])) 
+            l2_at = int(float_val(l2_at[profiler["Average"]]))
             l2_red = kernel_metrics.loc[(kernel_metrics["Metric Name"] == profiler["l2red"])]
             l2_red = int(float_val(l2_red[profiler["Average"]]))
 
@@ -244,7 +277,7 @@ def app_char(kernel_stats, kernel_name, metrics_file, graph, memories, profiler,
 
         l2_write_trans = l2_wr + l2_red + l2_at
 
-        l2_total = l2_read_trans + l2_write_trans 
+        l2_total = l2_read_trans + l2_write_trans
 
         l2_intensity = kernel_stats['total_inst'] / l2_total
         l2_performance = kernel_stats['total_inst'] / (1000 * kernel_stats['kernel_time']) # performance in  GIPS ( kernel_time in μsecs )
@@ -289,90 +322,121 @@ def app_char(kernel_stats, kernel_name, metrics_file, graph, memories, profiler,
         graph.plot(hbm_intensity, hbm_performance, color=color, marker = marker, label=label)
 
 
-if __name__ == "__main__":
 
-    ## Define dictionaries for colors, markers, labels ##
-    
-    colors = {
-        "l1":"r",
-        "l2":"g",
-        "hbm":"b",
-        'kernel_A': 'y',
-        "kernel_B":'m',
-    }
+def app_char_flop(kernel_stats, kernel_name, metrics_file, graph, profiler, label, color, marker):
+    ## Characterize a kernel on the compute (FLOP) roofline ##
 
-    markers = {
-        "l1":"s",
-        "l2":"s",
-        "hbm":"s",
-        'kernel_A': 's',
-        "kernel_B":'s',
-    }
+    metrics = load_clean_csv(metrics_file)
+    kernel_metrics = metrics.loc[(metrics[profiler["metric_kernel"]] == kernel_name)]
 
-    labels = {
-        "l1":"L1 (tot_inst)",
-        "l2":"L2 (tot_inst)",
-        "hbm":"HBM (tot_inst)",
-        'kernel_A': "A_kernel",
-        'kernel_B': "B_kernel",
-    }
+    def metric(key):
+        row = kernel_metrics.loc[kernel_metrics['Metric Name'] == profiler[key]]
+        return float_val(row[profiler["Average"]])
 
-    ## Define csv filenames ##
+    # single-precision FLOPs: add + mul + 2*fma
+    flops = metric("fadd") + metric("fmul") + 2 * metric("ffma")
 
-    timings = "multi_kernels/timing.csv"
-    events = "multi_kernels/events.csv"
-    metrics = "multi_kernels/metrics.csv"
+    # DRAM bytes moved (ncu counts read+write; nvprof needs both summed)
+    dram_bytes = metric("dram_bytes")
+    if profiler["dram_bytes_wr"] is not None:
+        dram_bytes += metric("dram_bytes_wr")
 
-    ## Define profiler (ncu or nvp)     ##
-    ## Dictionaries declared at the top ##
+    intensity = flops / dram_bytes  # FLOP / byte
+    # TFLOP/s: kernel_time is in microseconds
+    performance = flops / (kernel_stats['kernel_time'] * 1e6)
 
-    profiler = ncu
-
-    ## Define kernel name(s) (as shown in csv file)     ##
-    ## For hierarchical roofline provide single kernel  ##
-    ## otherwise provide multiple kernels               ##     
-
-    kernels = ["kernel_A", "kernel_B"]
-
-    ## Define Memories for ceilings ##
-
-    l1, l2, hbm = True, True, True
-    memories_ceil = [l1, l2, hbm]
-
-    ## Define Memories for plotting ##
-
-    l1, l2, hbm = True, False, False
-    memories_plot = [l1, l2, hbm]
-
-    ## Define graph elements ##
-
-    title = f"Kernel L1 Performance (NVIDIA A100)"
-    figname = f"multi_kernels/roofline_kernels.png"
-
-    ## Define rooflinemode           ##
-    ## (0: hierarchical for 1 kernel ##
-    ##  1: multiple kernels)         ##
-
-    mode = 1
-    
-
-    ax, fig = create_graph(memories_ceil)
-    
-
-    for kernel_name in kernels:
-        kernel_stats = {}
-
-        timing(kernel_stats, kernel_name, timings, profiler)
-
-        find_inst(kernel_stats, kernel_name, events, profiler)
-
-        app_char(kernel_stats, kernel_name, metrics, ax, memories_plot, profiler, labels, colors, markers, mode)
-        
-        # add legend
-        ax.legend(loc='lower right', fontsize='10')
+    graph.plot(intensity, performance, color=color, marker=marker, label=label)
 
 
-    ax.set_title(title)
+
+def build_style(keys):
+    ## Auto-assign colors/markers/labels for arbitrary kernel names ##
+    palette = itertools.cycle(['y','m','c','r','g','b','k'])
+    shapes = itertools.cycle(['s','o','^','D','v','P','X'])
+    colors = {k: next(palette) for k in keys}
+    markers = {k: next(shapes) for k in keys}
+    labels = {k: k for k in keys}
+    return colors, markers, labels
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Plot instruction or FLOP roofline models for GPU kernels.")
+
+    gpu = p.add_mutually_exclusive_group(required=True)
+    gpu.add_argument("--gpu", choices=gpu_specs.list_gpus(),
+                     help="GPU spec to use for the ceilings")
+    gpu.add_argument("--autodetect", action="store_true",
+                     help="detect the installed GPU via nvidia-smi")
+
+    p.add_argument("--mode", choices=["instruction", "flop"],
+                   default="instruction", help="which roofline model to draw")
+    p.add_argument("--roofline-type", choices=["hierarchical", "multi"],
+                   default="multi",
+                   help="hierarchical: single kernel, L1/L2/HBM points; "
+                        "multi: several kernels on chosen memories")
+    p.add_argument("--profiler", choices=["ncu", "nvprof"], default="ncu")
+
+    p.add_argument("--timing", required=True, help="timing csv")
+    p.add_argument("--events", help="events csv (instruction mode)")
+    p.add_argument("--metrics", required=True, help="metrics csv")
+
+    p.add_argument("--kernels", nargs="+", required=True,
+                   help="kernel name(s) as they appear in the csv files")
+
+    p.add_argument("--memories", nargs="+", default=["l1", "l2", "hbm"],
+                   choices=["l1", "l2", "hbm"],
+                   help="instruction mode: memory ceilings / points")
+    p.add_argument("--precisions", nargs="+", default=["fp16", "fp8"],
+                   choices=gpu_specs.PRECISIONS,
+                   help="flop mode: precision compute ceilings")
+
+    p.add_argument("--out", default="roofline.png", help="output png path")
+    p.add_argument("--title", help="plot title")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    gpu_name = gpu_specs.autodetect() if args.autodetect else args.gpu
+    spec = gpu_specs.get_spec(gpu_name)
+    profiler = ncu if args.profiler == "ncu" else nvp
+
+    if args.mode == "flop":
+        ax, fig = create_flop_graph(spec, args.precisions)
+        colors, markers, labels = build_style(args.kernels)
+        for kernel_name in args.kernels:
+            kernel_stats = {}
+            timing(kernel_stats, kernel_name, args.timing, profiler)
+            app_char_flop(kernel_stats, kernel_name, args.metrics, ax, profiler,
+                          labels[kernel_name], colors[kernel_name], markers[kernel_name])
+        default_title = f"FLOP Roofline (NVIDIA {gpu_name})"
+    else:
+        mode = 0 if args.roofline_type == "hierarchical" else 1
+        # ceilings: draw every memory level the spec supports
+        # points: only the memory levels the user selected via --memories
+        memories_ceil = [True, True, True]
+        memories_plot = ["l1" in args.memories, "l2" in args.memories, "hbm" in args.memories]
+        # hierarchical: one kernel plotted at L1/L2/HBM; use l1/l2/hbm style keys
+        style_keys = ["l1", "l2", "hbm"] if mode == 0 else args.kernels
+        colors, markers, labels = build_style(style_keys)
+
+        ax, fig = create_instruction_graph(spec, memories_ceil)
+        for kernel_name in args.kernels:
+            kernel_stats = {}
+            timing(kernel_stats, kernel_name, args.timing, profiler)
+            find_inst(kernel_stats, kernel_name, args.events, profiler)
+            app_char(kernel_stats, kernel_name, args.metrics, ax, memories_plot,
+                     profiler, labels, colors, markers, mode)
+        default_title = f"Instruction Roofline (NVIDIA {gpu_name})"
+
+    ax.legend(loc='lower right', fontsize='8')
+    ax.set_title(args.title or default_title)
     ax.grid(True)
+    fig.savefig(args.out, bbox_inches="tight")
+    print(f"Wrote {args.out}")
 
-    fig.savefig(figname, bbox_inches="tight")
+
+if __name__ == "__main__":
+    main()
