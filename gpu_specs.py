@@ -157,8 +157,14 @@ def autodetect():
     except (FileNotFoundError, subprocess.CalledProcessError) as e:
         raise SystemExit(f"Could not run nvidia-smi for --autodetect ({e}). "
                          f"Pass --gpu explicitly, one of: {', '.join(list_gpus())}")
-    name = query.stdout.strip().splitlines()[0]
-    return match_name(name)
+    lines = query.stdout.strip().splitlines()
+    if not lines:
+        # nvidia-smi returned 0 with no output: driver present but no GPU
+        # visible (empty container, --gpus none, etc.). Match the friendly
+        # SystemExit the FileNotFoundError / CalledProcessError branch raises.
+        raise SystemExit("nvidia-smi returned no GPU name for --autodetect. "
+                         f"Pass --gpu explicitly, one of: {', '.join(list_gpus())}")
+    return match_name(lines[0])
 
 
 def match_name(name):

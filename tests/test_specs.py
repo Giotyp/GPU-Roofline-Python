@@ -42,6 +42,31 @@ def test_match_name_aliases():
     assert gpu_specs.match_name("Tesla V100S-PCIE-32GB") == "V100S"
 
 
+def test_autodetect_exits_cleanly_when_nvidia_smi_returns_empty_stdout():
+    # nvidia-smi exits 0 with no output when the driver is present but no
+    # GPU is visible (empty container, --gpus none, etc.). Instead of an
+    # uncaught IndexError, autodetect should raise SystemExit with the same
+    # "pass --gpu explicitly" message the FileNotFoundError branch uses.
+    import subprocess as real_subprocess
+    original_run = gpu_specs.subprocess.run
+
+    class _EmptyCompleted:
+        stdout = "   \n"
+        returncode = 0
+
+    gpu_specs.subprocess.run = lambda *args, **kwargs: _EmptyCompleted()
+    try:
+        try:
+            gpu_specs.autodetect()
+        except SystemExit as exc:
+            assert "no GPU name" in str(exc)
+            return
+        assert False, "expected SystemExit for empty nvidia-smi output"
+    finally:
+        gpu_specs.subprocess.run = original_run
+        assert gpu_specs.subprocess is real_subprocess
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
