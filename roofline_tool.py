@@ -57,6 +57,17 @@ ncu = {
 # Function to return float value from row object
 # ncu stores numbers in ',' format e.g. 750,000.0
 def float_val(x):
+    # Empty selection: the caller passed a metric/kernel row that never
+    # matched. to_string() on an empty Series yields something like
+    # "Series([], Name: Average, dtype: object)", and float() on that
+    # raises a cryptic ValueError with no context. timing() catches its
+    # own empty case; every other call site (find_inst, app_char,
+    # app_char_flop) funnels through this primitive, so guard it here.
+    if len(x) == 0:
+        raise SystemExit(
+            "Missing metric/kernel row in profiler CSV (empty selection). "
+            "Check that --kernels names match the timing and metrics CSVs, "
+            "and that the metrics CSV carries every metric the mode needs.")
     return float(x.to_string().split(' ')[-1].replace(',',''))
 
 

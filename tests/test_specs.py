@@ -42,6 +42,23 @@ def test_match_name_aliases():
     assert gpu_specs.match_name("Tesla V100S-PCIE-32GB") == "V100S"
 
 
+def test_float_val_on_empty_series_raises_systemexit():
+    # A missing metric/kernel row (kernel exists in timing.csv, metric row
+    # is absent from metrics.csv, or the mode's metric was not collected)
+    # reaches float_val as an empty Series. Instead of the cryptic
+    # ValueError raised by float(<Series repr>), it should raise
+    # SystemExit naming the fix.
+    import pandas as pd
+    import roofline_tool
+    empty = pd.Series([], dtype="object", name="Average")
+    try:
+        roofline_tool.float_val(empty)
+    except SystemExit as exc:
+        assert "empty selection" in str(exc).lower() or "missing metric" in str(exc).lower()
+        return
+    assert False, "expected SystemExit for an empty Series"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
